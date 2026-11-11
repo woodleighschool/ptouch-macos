@@ -1,4 +1,4 @@
-# P-touch macOS Bridge
+# P-touch Bridge
 
 A background service that makes Brother P-touch Bluetooth printers available in the macOS Print dialog. Requires macOS 26 or later.
 
