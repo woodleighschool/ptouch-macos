@@ -20,12 +20,15 @@ struct Label {
         }
     }
 
-    func commands() -> [UInt8] {
-        var bytes = [UInt8](repeating: 0, count: 100)
-        bytes += [0x1B, 0x40, 0x1B, 0x69, 0x61, 1]
+    func commands(first: Bool, last: Bool) -> [UInt8] {
+        var bytes: [UInt8] = []
+        if first {
+            bytes = [UInt8](repeating: 0, count: 100)
+            bytes += [0x1B, 0x40, 0x1B, 0x69, 0x61, 1]
+        }
         bytes += [0x1B, 0x69, 0x7A, 0x84, 1, tape.statusCode, 0]
         bytes += (0 ..< 4).map { UInt8(truncatingIfNeeded: width >> ($0 * 8)) }
-        bytes += [0, 0, 0x1B, 0x69, 0x4D, 0x40, 0x1B, 0x69, 0x4B, 8]
+        bytes += [first ? 0 : 1, 0, 0x1B, 0x69, 0x4D, 0x40, 0x1B, 0x69, 0x4B, 8]
         bytes += [0x1B, 0x69, 0x64, UInt8(truncatingIfNeeded: profile.feedDots), UInt8(truncatingIfNeeded: profile.feedDots >> 8), 0x4D, 0]
         let byteCount = profile.headDots / 8
         for line in 0 ..< width {
@@ -37,7 +40,8 @@ struct Label {
             }
             bytes += raster
         }
-        bytes.append(0x1A)
+        // Only the final page feeds the completed batch past the cutter.
+        bytes.append(last ? 0x1A : 0x0C)
         return bytes
     }
 }

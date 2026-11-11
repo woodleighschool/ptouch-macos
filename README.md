@@ -6,6 +6,8 @@ A background service that makes Brother P-touch Bluetooth printers available in 
 
 Install the package, pair the printer in Bluetooth settings, and allow Bluetooth access when prompted. The service adds recognised printers automatically. Choose the printer and a paper size matching the loaded cassette in the Print dialog.
 
+Print multiple labels as one multi-page job to share the initial tape feed. Each page is cut separately.
+
 A LaunchAgent starts the service at sign-in. Manage print jobs in Print Center.
 
 ## Compatibility

@@ -103,24 +103,24 @@ final class BluetoothPrinter: NSObject, @preconcurrency IOBluetoothRFCOMMChannel
             self.tape = tape
             if printing {
                 if status[18] == 1 {
-                    printNext(channel)
+                    printNext(channel, first: false)
                 }
             } else if !labels.isEmpty {
                 do { try Label.validate(labels, loadedTape: tape) }
                 catch { return fail(error.localizedDescription) }
                 printing = true
-                printNext(channel)
+                printNext(channel, first: true)
             } else {
                 complete()
             }
         }
     }
 
-    private func printNext(_ channel: IOBluetoothRFCOMMChannel) {
+    private func printNext(_ channel: IOBluetoothRFCOMMChannel, first: Bool) {
         guard !labels.isEmpty else { return complete() }
         onProgress("Printing over Bluetooth")
         let label = labels.removeFirst()
-        send(label.commands(), channel: channel)
+        send(label.commands(first: first, last: labels.isEmpty), channel: channel)
     }
 
     func rfcommChannelClosed(_: IOBluetoothRFCOMMChannel!) {

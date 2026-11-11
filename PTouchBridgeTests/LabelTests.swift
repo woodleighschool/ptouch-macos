@@ -10,7 +10,7 @@ struct LabelTests {
         let label = try withPDF(width: 80, height: width) { try render($0.path, profile: testPrinter.profile)[0] }
         #expect(label.tape.widthMM == width)
         #expect(label.pixels.count == label.width * testPrinter.profile.headDots)
-        #expect(label.commands()[111] == label.tape.statusCode)
+        #expect(label.commands(first: true, last: true)[111] == label.tape.statusCode)
     }
 
     @Test func acceptsPortraitDocuments() throws {
@@ -37,7 +37,7 @@ struct LabelTests {
         let label = try withPDF(width: 80, height: 20) { try render($0.path, profile: profile)[0] }
         #expect(label.width == 1134)
         #expect(label.pixels.count == 1134 * 256)
-        #expect(label.commands()[135] == 32)
+        #expect(label.commands(first: true, last: true)[135] == 32)
     }
 
     @Test func rendersLabelAtNativeResolution() throws {
@@ -45,6 +45,33 @@ struct LabelTests {
         #expect(labels.count == 1)
         #expect(labels[0].width == 425)
         #expect(labels[0].pixels.count == 425 * 128)
+    }
+
+    @Test func singleLabelInitializesAndFeeds() throws {
+        let label = try withPDF(width: 60, height: 24) { try render($0.path, profile: testPrinter.profile)[0] }
+        let commands = label.commands(first: true, last: true)
+        #expect(Array(commands.prefix(106)) == [UInt8](repeating: 0, count: 100) + [0x1B, 0x40, 0x1B, 0x69, 0x61, 1])
+        #expect(commands[117] == 0)
+        #expect(commands.last == 0x1A)
+    }
+
+    @Test func batchContinuesWithoutFeedingBetweenLabels() throws {
+        let label = try withPDF(width: 60, height: 24) { try render($0.path, profile: testPrinter.profile)[0] }
+        let first = label.commands(first: true, last: false)
+        let middle = label.commands(first: false, last: false)
+        let last = label.commands(first: false, last: true)
+
+        #expect(first[117] == 0)
+        #expect(first.last == 0x0C)
+        for continuation in [middle, last] {
+            // Continuations start with print information, without invalidating or initializing the batch.
+            #expect(Array(continuation.prefix(3)) == [0x1B, 0x69, 0x7A])
+            #expect(continuation[11] == 1)
+            #expect(Array(continuation[13 ..< 21]) == [0x1B, 0x69, 0x4D, 0x40, 0x1B, 0x69, 0x4B, 8])
+        }
+        #expect(middle.last == 0x0C)
+        #expect(last.last == 0x1A)
+        #expect(Array(first.dropFirst(119).dropLast()) == Array(middle.dropFirst(13).dropLast()))
     }
 
     @Test func rejectsOfficePaper() throws {
