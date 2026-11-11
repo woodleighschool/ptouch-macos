@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -eu
+
+label="au.edu.vic.woodleigh.PTouchBridge"
+plist="/Library/LaunchAgents/${label}.plist"
+console_user="$(/usr/bin/stat -f '%Su' /dev/console)"
+
+case "${console_user}" in
+    "" | root | loginwindow)
+        exit 0
+        ;;
+esac
+
+user_id="$(/usr/bin/id -u "${console_user}" 2>/dev/null)" || exit 0
+[ "${user_id}" -ge 500 ] || exit 0
+
+domain="gui/${user_id}"
+/bin/launchctl bootout "${domain}/${label}" 2>/dev/null || true
+/bin/launchctl bootstrap "${domain}" "${plist}"
