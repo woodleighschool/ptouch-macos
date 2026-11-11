@@ -1,0 +1,9 @@
+[[remotes]]
+git_url = "https://github.com/woodleighschool/.github"
+ref = "main"
+configs = ["lefthook.common.toml"]
+
+[pre-commit.commands.format-swift]
+glob = ["*.swift"]
+run = "swiftformat {staged_files}"
+stage_fixed = true

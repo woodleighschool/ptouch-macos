@@ -1,0 +1,19 @@
+# Xcode
+xcuserdata/
+
+# Local services
+/.local/
+
+# Local Mise
+.mise.local.toml
+.mise.local.lock
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Build products
+/build/
+/dist/
