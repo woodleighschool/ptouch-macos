@@ -93,7 +93,7 @@ final nonisolated class IPPMessage {
         return output.data
     }
 
-    func printerAttributes(device: PrinterDescriptor, loadedTape: Tape?, processing: Bool, uptime: Int) {
+    func printerAttributes(device: PrinterDescriptor, status: QueueStatus, knownTape: Tape?, queuedJobs: Int, uptime: Int) {
         string("printer-uri-supported", device.uri, tag: IPP_TAG_URI)
         string("uri-authentication-supported", "none")
         string("uri-security-supported", "none")
@@ -104,10 +104,11 @@ final nonisolated class IPPMessage {
         string("printer-more-info", "https://support.brother.com/", tag: IPP_TAG_URI)
         string("printer-device-id", "MFG:Brother;MDL:\(device.profile.model);CMD:PDF;", tag: IPP_TAG_TEXT)
         string("printer-uuid", device.uuid, tag: IPP_TAG_URI)
-        integer("printer-state", processing ? 4 : 3, tag: IPP_TAG_ENUM)
-        string("printer-state-reasons", "none")
+        integer("printer-state", status.ippState, tag: IPP_TAG_ENUM)
+        strings("printer-state-reasons", status.reasons)
+        string("printer-state-message", status.message, tag: IPP_TAG_TEXT)
         boolean("printer-is-accepting-jobs", true)
-        integer("queued-job-count", processing ? 1 : 0)
+        integer("queued-job-count", queuedJobs)
         integer("printer-up-time", uptime)
         strings("ipp-versions-supported", ["1.1", "2.0"])
         integers("operations-supported", [2, 4, 5, 6, 8, 9, 10, 11], tag: IPP_TAG_ENUM)
@@ -142,26 +143,25 @@ final nonisolated class IPPMessage {
             ippAddResolution(pointer, IPP_TAG_PRINTER, key, IPP_RES_PER_INCH, Int32(device.profile.dpi), Int32(device.profile.dpi))
         }
         let profile = device.profile
-        let defaultTape = loadedTape ?? profile.tapes.last!
-        func mediaName(_ tape: Tape) -> String {
-            "custom_100x\(tape.name)mm_100x\(tape.name)mm"
-        }
-        string("media-default", mediaName(defaultTape))
-        strings("media-supported", profile.tapes.map(mediaName))
+        let loadedTape = status.printer.tape
+        let tapes = profile.tapes
+        let defaultTape = knownTape ?? profile.tapes.last!
+        string("media-default", defaultTape.mediaName)
+        strings("media-supported", tapes.map(\.mediaName))
         if let loadedTape {
-            string("media-ready", mediaName(loadedTape))
+            string("media-ready", loadedTape.mediaName)
         }
         string("media-source-supported", "roll-1")
         string("media-type-supported", "labels")
         strings("media-col-supported", ["media-size", "media-top-margin", "media-bottom-margin", "media-left-margin", "media-right-margin", "media-source", "media-type"])
-        let margins = Array(Set(profile.tapes.map { Int32($0.marginHundredths(dpi: profile.dpi)) })).sorted()
+        let margins = Array(Set(tapes.map { Int32($0.marginHundredths(dpi: profile.dpi)) })).sorted()
         for key in ["media-top-margin-supported", "media-bottom-margin-supported"] {
             integers(key, margins)
         }
         for key in ["media-left-margin-supported", "media-right-margin-supported"] {
             integer(key, 0)
         }
-        for tape in profile.tapes {
+        for tape in tapes {
             let range = ippNew()!
             ippAddRange(range, IPP_TAG_ZERO, "x-dimension", Int32(profile.lengthMM.lowerBound * 100), Int32(profile.lengthMM.upperBound * 100))
             ippAddInteger(range, IPP_TAG_ZERO, IPP_TAG_INTEGER, "y-dimension", Int32(tape.widthMM * 100))
@@ -174,7 +174,7 @@ final nonisolated class IPPMessage {
             let media = ippNew()!
             ippAddCollection(media, IPP_TAG_ZERO, "media-size", size)
             ippDelete(size)
-            ippAddString(media, IPP_TAG_ZERO, IPP_TAG_KEYWORD, "media-size-name", nil, mediaName(tape))
+            ippAddString(media, IPP_TAG_ZERO, IPP_TAG_KEYWORD, "media-size-name", nil, tape.mediaName)
             ippAddString(media, IPP_TAG_ZERO, IPP_TAG_KEYWORD, "media-source", nil, "roll-1")
             ippAddString(media, IPP_TAG_ZERO, IPP_TAG_KEYWORD, "media-type", nil, "labels")
             let margin = tape.marginHundredths(dpi: profile.dpi)

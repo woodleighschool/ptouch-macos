@@ -6,19 +6,92 @@ import OSLog
 final class PrintServer {
     let device: PrinterDescriptor
     let printer: BluetoothPrinter
-    private var loadedTape: Tape?
+    private var configuredTape: Tape?
+    private let synchronizeQueue: (PrinterDescriptor, Tape?, QueueStatus, Bool) async throws -> Void
+    private var publishedStatus: QueueStatus?
+    private var queueUpdate: Task<Void, Never>?
+    private var operation: Task<Void, Never>?
+    private var monitor: Task<Void, Never>?
 
-    init(device: PrinterDescriptor) {
+    init(
+        device: PrinterDescriptor,
+        printer: BluetoothPrinter? = nil,
+        synchronizeQueue: @escaping (PrinterDescriptor, Tape?, QueueStatus, Bool) async throws -> Void = PrinterQueue.update
+    ) {
         self.device = device
-        printer = BluetoothPrinter(device: device)
-        printer.onProgress = { text in Logger.bridge.info("\(text, privacy: .public)") }
+        self.printer = printer ?? BluetoothPrinter(device: device)
+        self.synchronizeQueue = synchronizeQueue
+        self.printer.onStateChange = { [weak self] in self?.updateQueue() }
+    }
+
+    func startMonitoring(interval: Duration = .seconds(10)) {
+        guard monitor == nil else { return }
+        monitor = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let _ = await self?.refresh() else { return }
+                do { try await Task.sleep(for: interval) } catch { return }
+            }
+        }
+    }
+
+    func stop() {
+        monitor?.cancel()
+        monitor = nil
+        operation?.cancel()
+        queueUpdate?.cancel()
+        printer.onStateChange = {}
+        printer.disconnect("Printer service stopped.")
     }
 
     private let started = Date()
     private var nextID = Int(Date().timeIntervalSince1970)
     private var jobs: [Int: Job] = [:]
     private var pending: [(Int, [Label])] = []
-    private var printing = false
+
+    private var stoppedJob: Job? {
+        jobs.values.filter { $0.state == 6 }.min { $0.id < $1.id }
+    }
+
+    func refresh() async {
+        guard operation == nil else { return }
+        let poll = Task {
+            do { try await printer.perform() }
+            catch { /* The printer owns its live status, independently of jobs. */ }
+            updateQueue()
+            operation = nil
+            if !Task.isCancelled {
+                startPrinting()
+            }
+        }
+        operation = poll
+        await poll.value
+    }
+
+    private var status: QueueStatus {
+        QueueStatus(printer: printer.state, jobError: stoppedJob?.message)
+    }
+
+    private func updateQueue() {
+        guard !Task.isCancelled, queueUpdate == nil,
+              configuredTape != printer.knownTape || publishedStatus != status else { return }
+        queueUpdate = Task {
+            defer { queueUpdate = nil }
+            do {
+                while !Task.isCancelled {
+                    let tape = printer.knownTape
+                    let current = status
+                    try await synchronizeQueue(device, tape, current, configuredTape != tape)
+                    configuredTape = tape
+                    publishedStatus = current
+                    if configuredTape == printer.knownTape, publishedStatus == status {
+                        return
+                    }
+                }
+            } catch {
+                Logger.bridge.error("Queue setup: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
 
     struct Job {
         let id: Int
@@ -32,9 +105,14 @@ final class PrintServer {
 
     func handle(_ request: IPPMessage) -> IPPMessage {
         let response = IPPMessage(responseTo: request)
+        defer { updateQueue() }
         switch request.operation {
         case 11:
-            response.printerAttributes(device: device, loadedTape: loadedTape, processing: printing, uptime: Int(Date().timeIntervalSince(started)))
+            response.printerAttributes(
+                device: device, status: status, knownTape: printer.knownTape,
+                queuedJobs: jobs.values.filter { $0.state < 7 }.count,
+                uptime: Int(Date().timeIntervalSince(started))
+            )
         case 4:
             if let format = request.text("document-format"), format != "application/pdf", format != "application/octet-stream" {
                 response.error(IPP_STATUS_ERROR_DOCUMENT_FORMAT_NOT_SUPPORTED, "Use a PDF with a paper size supported by this printer.")
@@ -49,7 +127,7 @@ final class PrintServer {
             nextID += 1
             jobs[job.id] = job
             if request.operation == 2 {
-                enqueue(request.document, job: job.id, response: response)
+                enqueue(request.document, job: job.id)
             }
             add(jobs[job.id]!, to: response)
         case 6:
@@ -57,7 +135,7 @@ final class PrintServer {
                 response.error(IPP_STATUS_ERROR_NOT_FOUND, "No job is waiting for this document.")
                 return response
             }
-            enqueue(request.document, job: id, response: response)
+            enqueue(request.document, job: id)
             add(jobs[id]!, to: response)
         case 9:
             guard let id = jobID(request), let job = jobs[id] else {
@@ -82,6 +160,7 @@ final class PrintServer {
                 pending.removeAll { $0.0 == id }
                 jobs[id]?.state = 7
                 jobs[id]?.message = "Cancelled"
+                startPrinting()
             }
         default:
             response.error(IPP_STATUS_ERROR_OPERATION_NOT_SUPPORTED, "Unsupported IPP operation.")
@@ -100,14 +179,14 @@ final class PrintServer {
         response.string("job-name", job.name, tag: IPP_TAG_NAME, group: IPP_TAG_JOB)
         response.string("job-originating-user-name", job.user, tag: IPP_TAG_NAME, group: IPP_TAG_JOB)
         response.integer("job-state", job.state, tag: IPP_TAG_ENUM, group: IPP_TAG_JOB)
-        let reason = job.state == 9 ? "job-completed-successfully" : job.state == 8 ? "job-completed-with-errors" : job.state == 7 ? "job-canceled-by-user" : job.state == 4 ? "job-data-insufficient" : "none"
+        let reason = job.state == 9 ? "job-completed-successfully" : job.state == 7 ? "job-canceled-by-user" : job.state == 6 ? "printer-stopped" : job.state == 4 ? "job-data-insufficient" : "none"
         response.string("job-state-reasons", reason, group: IPP_TAG_JOB)
         response.string("job-state-message", job.message, tag: IPP_TAG_TEXT, group: IPP_TAG_JOB)
         response.integer("job-impressions-completed", job.pages, group: IPP_TAG_JOB)
         response.integer("job-printer-up-time", Int(Date().timeIntervalSince(started)), group: IPP_TAG_JOB)
     }
 
-    private func enqueue(_ data: Data, job id: Int, response: IPPMessage) {
+    private func enqueue(_ data: Data, job id: Int) {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".pdf")
         defer { try? FileManager.default.removeItem(at: file) }
         do {
@@ -118,33 +197,36 @@ final class PrintServer {
             jobs[id]?.state = 3
             jobs[id]?.message = "Queued"
             pending.append((id, labels))
-            if !printing {
-                printing = true
-                Task { await drain() }
-            }
+            startPrinting()
         } catch {
-            jobs[id]?.state = 8
+            jobs[id]?.state = 6
             jobs[id]?.message = error.localizedDescription
             Logger.bridge.error("Rejected document: \(error.localizedDescription, privacy: .public)")
-            response.error(IPP_STATUS_ERROR_DOCUMENT_FORMAT_ERROR, error.localizedDescription)
         }
     }
 
+    private func startPrinting() {
+        guard operation == nil, stoppedJob == nil, !pending.isEmpty,
+              case .ready = printer.state else { return }
+        operation = Task { await drain() }
+    }
+
     private func drain() async {
-        while !pending.isEmpty {
+        while !Task.isCancelled, stoppedJob == nil, !pending.isEmpty, case .ready = printer.state {
             let (id, labels) = pending.removeFirst()
             jobs[id]?.state = 5
             jobs[id]?.message = "Printing"
             do {
-                loadedTape = try await printer.perform(labels: labels)
+                try await printer.perform(labels: labels)
                 jobs[id]?.state = 9
                 jobs[id]?.pages = labels.count
                 jobs[id]?.message = "Printed"
             } catch {
-                jobs[id]?.state = 8
+                jobs[id]?.state = 6
                 jobs[id]?.message = error.localizedDescription
             }
+            updateQueue()
         }
-        printing = false
+        operation = nil
     }
 }

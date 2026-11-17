@@ -9,6 +9,10 @@ nonisolated struct Tape: Equatable, Sendable {
         widthMM.rounded() == widthMM ? String(Int(widthMM)) : String(widthMM)
     }
 
+    var mediaName: String {
+        "custom_100x\(name)mm_100x\(name)mm"
+    }
+
     func marginHundredths(dpi: Int) -> Int {
         Int(((widthMM - Double(printableDots) * 25.4 / Double(dpi)) * 50).rounded(.up))
     }

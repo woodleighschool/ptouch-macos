@@ -16,6 +16,10 @@ enum PTouchBridgeApp {
 final class ServiceDelegate: NSObject, NSApplicationDelegate {
     private let service = BridgeService()
 
+    func applicationWillTerminate(_: Notification) {
+        service.stop()
+    }
+
     func applicationDidFinishLaunching(_: Notification) {
         guard NSClassFromString("XCTestCase") == nil else { return }
         do { try service.start() }
