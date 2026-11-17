@@ -92,7 +92,7 @@ func render(_ path: String, profile: PrinterProfile) throws -> [Label] {
         for y in 0 ..< height {
             for x in 0 ..< width where source[y * width + x] < 128 {
                 guard (top ..< top + tape.printableDots).contains(y) else {
-                    throw LabelError("Page \(pageNumber) has content outside the printable area of \(tape.name) mm tape.")
+                    throw LabelError("Page \(pageNumber) has content outside the printable area of \(tape.name) mm tape. Check paper size, orientation and scaling, then cancel this job and print again.")
                 }
                 pixels[(y - top + headOffset) * width + x] = 0
             }

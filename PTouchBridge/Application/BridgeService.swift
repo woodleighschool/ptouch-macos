@@ -35,16 +35,26 @@ final class BridgeService {
         listener.start(queue: .main)
     }
 
+    func stop() {
+        discovery?.cancel()
+        discovery = nil
+        for printer in printers.values {
+            printer.stop()
+        }
+        listener?.cancel()
+        listener = nil
+    }
+
     private func discoverPrinters() {
         guard discovery == nil else { return }
         discovery = Task {
             while !Task.isCancelled {
                 for descriptor in await BluetoothDiscovery.pairedPrinters() {
                     if printers[descriptor.id] == nil {
-                        printers[descriptor.id] = PrintServer(device: descriptor)
+                        let printer = PrintServer(device: descriptor)
+                        printers[descriptor.id] = printer
+                        printer.startMonitoring()
                     }
-                    do { try await PrinterQueue.ensure(descriptor) }
-                    catch { Logger.bridge.error("Queue setup: \(error.localizedDescription, privacy: .public)") }
                 }
                 do { try await Task.sleep(for: .seconds(30)) }
                 catch { return }
