@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/woodleighschool/ptouch-macos/compare/v0.1.2...v0.1.3) (2026-11-17)
+
+
+### Bug Fixes
+
+* recover printer connections and publish live status ([5e29590](https://github.com/woodleighschool/ptouch-macos/commit/5e29590420229426efc79b13a9565c786363ace7))
+
 ## [0.1.2](https://github.com/woodleighschool/ptouch-macos/compare/v0.1.1...v0.1.2) (2026-11-11)
 
 
