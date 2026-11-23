@@ -18,7 +18,7 @@ run = "swiftformat PTouchBridge PTouchBridgeTests"
 run = "swiftformat PTouchBridge PTouchBridgeTests --lint"
 
 [tasks.build]
-description = "Build the unsigned background service"
+description = "Unsigned"
 run = """
 xcodebuild build \
   -project PTouchBridge.xcodeproj \
@@ -29,7 +29,6 @@ xcodebuild build \
 """
 
 [tasks.periphery]
-description = "Build the app and reject unused Swift code"
 run = """
 periphery scan \
   --project PTouchBridge.xcodeproj \
@@ -44,7 +43,6 @@ periphery scan \
 """
 
 [tasks.test]
-description = "Run the macOS test suite"
 run = """
 xcodebuild test \
   -project PTouchBridge.xcodeproj \
@@ -54,15 +52,12 @@ xcodebuild test \
 """
 
 [tasks.shell-lint]
-description = "Lint package scripts"
 run = "shellcheck packaging/scripts/*"
 
 [tasks.plist-lint]
-description = "Lint property lists"
 run = "plutil -lint Config/*.plist packaging/root/Library/LaunchAgents/*.plist"
 
 [tasks.lint]
-description = "Check Swift code, shell scripts and property lists"
 depends = ["shell-lint", "plist-lint", "periphery"]
 
 [hooks]
