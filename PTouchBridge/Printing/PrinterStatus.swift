@@ -81,7 +81,9 @@ nonisolated struct PrinterStatus {
         }
         kind = bytes[18]
         printing = bytes[19] == 1
-        tape = [1, 3].contains(bytes[11]) ? profile.tapes.first { $0.statusCode == bytes[10] } : nil
+        // Flexible ID TZe (14h) shares laminated cassette geometry. Brother's P710BT reference
+        // omits it, but the printer reports it alongside the Flex. ID tape colour (90h).
+        tape = [0x01, 0x03, 0x14].contains(bytes[11]) ? profile.tapes.first { $0.statusCode == bytes[10] } : nil
         if bytes[8] & 0x01 != 0 || bytes[11] == 0 {
             issue = PrinterIssue(reason: "media-empty-error", message: "Load a tape cassette.")
         } else if bytes[9] & 0x10 != 0 {

@@ -122,6 +122,13 @@ struct BluetoothPrinterTests {
         #expect(printer.state.reason == "offline-report")
     }
 
+    @Test(arguments: [(UInt8(0x01), true), (0x03, true), (0x14, true), (0x11, false), (0x17, false), (0xFF, false)])
+    func acceptsOnlyTZeCassettes(media: UInt8, supported: Bool) throws {
+        let status = try PrinterStatus([UInt8](statusPacket(media: media)), profile: testPrinter.profile)
+        #expect(status.tape == (supported ? testTape : nil))
+        #expect(status.issue?.reason == (supported ? nil : "media-needed-error"))
+    }
+
     @Test func malformedStatusClosesConnection() async throws {
         let connection = TestConnection()
         connection.replyToStatus = false
@@ -194,7 +201,7 @@ final class TestConnection: PrinterConnection {
 let statusRequest: [UInt8] = [0x1B, 0x69, 0x53]
 let testTape = PrinterProfile.profiles[0].tapes.last!
 
-func statusPacket(kind: UInt8 = 0, width: UInt8 = 24, error1: UInt8 = 0, error2: UInt8 = 0) -> Data {
+func statusPacket(kind: UInt8 = 0, width: UInt8 = 24, media: UInt8 = 0x01, error1: UInt8 = 0, error2: UInt8 = 0) -> Data {
     var bytes = [UInt8](repeating: 0, count: 32)
     bytes[0] = 0x80
     bytes[1] = 0x20
@@ -202,7 +209,7 @@ func statusPacket(kind: UInt8 = 0, width: UInt8 = 24, error1: UInt8 = 0, error2:
     bytes[8] = error1
     bytes[9] = error2
     bytes[10] = width
-    bytes[11] = 1
+    bytes[11] = media
     bytes[18] = kind
     return Data(bytes)
 }
