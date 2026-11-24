@@ -10,7 +10,7 @@ struct BluetoothPrinterTests {
         try await printer.perform()
         #expect(printer.state == .ready(testTape))
         connection.drop()
-        #expect(printer.state.reason == "offline-error")
+        #expect(printer.state.reason == "offline-report")
         #expect(printer.state.tape == nil)
         #expect(printer.knownTape == testTape)
         connection.openError = LabelError("Out of range")
@@ -28,7 +28,7 @@ struct BluetoothPrinterTests {
         let printer = BluetoothPrinter(device: testPrinter, connection: connection, responseTimeout: .milliseconds(20))
         await #expect(throws: LabelError.self) { try await printer.perform() }
         #expect(!connection.connected)
-        #expect(printer.state.reason == "offline-error")
+        #expect(printer.state.reason == "offline-report")
         connection.replyToStatus = true
         try await printer.perform()
         #expect(connection.opens == 2)
@@ -119,7 +119,7 @@ struct BluetoothPrinterTests {
         try await printer.perform()
         #expect(printer.state == .ready(testTape))
         connection.emit(statusPacket(kind: 4))
-        #expect(printer.state.reason == "offline-error")
+        #expect(printer.state.reason == "offline-report")
     }
 
     @Test func malformedStatusClosesConnection() async throws {
@@ -129,7 +129,7 @@ struct BluetoothPrinterTests {
         let printer = BluetoothPrinter(device: testPrinter, connection: connection)
         await #expect(throws: LabelError.self) { try await printer.perform() }
         #expect(!connection.connected)
-        #expect(printer.state.reason == "offline-error")
+        #expect(printer.state.reason == "offline-report")
     }
 }
 

@@ -60,6 +60,18 @@ struct PrintServerTests {
         #expect(status(response) == 0x040B)
     }
 
+    @Test(arguments: [PrinterState.offline("Printer is off"), .connecting])
+    func reportsDisconnectedPrinterWithoutError(state: PrinterState) throws {
+        let response = try IPPMessage(responseTo: request(operation: 11))
+        response.printerAttributes(device: testPrinter, status: QueueStatus(printer: state, jobError: nil), knownTape: testTape, queuedJobs: 1, uptime: 1)
+        #expect(response.number("printer-state") == 3)
+        #expect(response.text("printer-state-reasons") == "offline-report")
+        #expect(response.text("printer-state-message") == state.message)
+        let accepting = try #require(ippFindAttribute(response.pointer, "printer-is-accepting-jobs", IPP_TAG_BOOLEAN))
+        #expect(ippGetBoolean(accepting, 0) == 1)
+        #expect(response.text("media-ready") == nil)
+    }
+
     @Test func stopsInvalidDocumentWithVisibleErrorUntilCancelled() throws {
         let server = PrintServer(device: testPrinter, synchronizeQueue: { _, _, _, _ in })
         let request = try request(operation: 2)
@@ -73,15 +85,15 @@ struct PrintServerTests {
         let printer = try server.handle(self.request(operation: 11))
         #expect(printer.number("printer-state") == 5)
         #expect(printer.text("printer-state-message")?.contains(error) == true)
-        #expect(printer.text("printer-state-reasons") == "offline-error")
+        #expect(printer.text("printer-state-reasons") == "offline-report")
 
         let cancel = try self.request(operation: 8)
         try cancel.integer("job-id", #require(response.number("job-id")))
         #expect(status(server.handle(cancel)) == 0)
         let recovered = try server.handle(self.request(operation: 11))
-        #expect(recovered.number("printer-state") == 5)
+        #expect(recovered.number("printer-state") == 3)
         #expect(recovered.text("printer-state-message") == "Waiting for printer connection.")
-        #expect(recovered.text("printer-state-reasons") == "offline-error")
+        #expect(recovered.text("printer-state-reasons") == "offline-report")
     }
 
     @Test func cancelsJobWaitingForDocument() throws {
@@ -113,8 +125,8 @@ struct PrintServerTests {
         #expect(ready.number("queued-job-count") == 0)
         connection.drop()
         let offline = try server.handle(request(operation: 11))
-        #expect(offline.number("printer-state") == 5)
-        #expect(offline.text("printer-state-reasons") == "offline-error")
+        #expect(offline.number("printer-state") == 3)
+        #expect(offline.text("printer-state-reasons") == "offline-report")
         #expect(offline.text("media-ready") == nil)
         #expect(offline.text("media-default") == testTape.mediaName)
         try await eventually { connection.opens == 2 && printer.state == .ready(testTape) }
@@ -207,7 +219,7 @@ struct PrintServerTests {
         }
         defer { server.stop() }
         await server.refresh()
-        try await eventually { published.last?.printer.reason == "offline-error" }
+        try await eventually { published.last?.printer.reason == "offline-report" }
         #expect(published.last?.message == "Printer is off")
     }
 
@@ -227,7 +239,7 @@ struct PrintServerTests {
         try await eventually { finishSetup != nil }
         connection.drop()
         finishSetup?.resume()
-        try await eventually { published.last?.printer.reason == "offline-error" }
+        try await eventually { published.last?.printer.reason == "offline-report" }
         #expect(published.last?.message == "Bluetooth disconnected.")
     }
 

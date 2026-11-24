@@ -25,8 +25,7 @@ nonisolated enum PrinterState: Equatable {
 
     var reason: String {
         switch self {
-        case .offline: "offline-error"
-        case .connecting: "connecting-to-device-error"
+        case .offline, .connecting: "offline-report"
         case let .stopped(issue): issue.reason
         case .ready, .printing: "none"
         }
@@ -59,13 +58,14 @@ nonisolated struct QueueStatus: Equatable {
     }
 
     var ippState: Int {
-        if reasons != ["none"] {
+        if jobError != nil {
             return 5
         }
-        if case .printing = printer {
-            return 4
+        switch printer {
+        case .stopped: return 5
+        case .printing: return 4
+        case .offline, .connecting, .ready: return 3
         }
-        return 3
     }
 }
 
