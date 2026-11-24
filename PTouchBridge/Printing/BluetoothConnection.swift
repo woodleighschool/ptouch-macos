@@ -15,6 +15,7 @@ protocol PrinterConnection: AnyObject {
 final class BluetoothConnection: NSObject, PrinterConnection, @preconcurrency IOBluetoothRFCOMMChannelDelegate {
     private let address: String
     private var channel: IOBluetoothRFCOMMChannel?
+    private var serviceQuery: BluetoothServiceQuery?
     private var opening: CheckedContinuation<Void, Error>?
     private var writing: CheckedContinuation<Void, Error>?
     var onData: (Data) -> Void = { _ in }
@@ -30,14 +31,20 @@ final class BluetoothConnection: NSObject, PrinterConnection, @preconcurrency IO
             return
         }
         close()
-        guard let device = IOBluetoothDevice(addressString: address), device.isPaired(),
-              let service = device.getServiceRecord(for: IOBluetoothSDPUUID(uuid16: 0x1101))
-        else {
+        guard let device = IOBluetoothDevice(addressString: address), device.isPaired() else {
             throw LabelError("Pair the printer in macOS Bluetooth settings.")
         }
-        // The paired Serial Port record avoids an SDP query whose callback is missing in the macOS shim.
+        if device.getServiceRecord(for: IOBluetoothSDPUUID(uuid16: 0x1101)) == nil {
+            let query = BluetoothServiceQuery(device: device)
+            serviceQuery = query
+            try await query.perform()
+            serviceQuery = nil
+        }
+        try Task.checkCancellation()
         var channelID: BluetoothRFCOMMChannelID = 0
-        guard service.getRFCOMMChannelID(&channelID) == kIOReturnSuccess else {
+        guard let service = device.getServiceRecord(for: IOBluetoothSDPUUID(uuid16: 0x1101)),
+              service.getRFCOMMChannelID(&channelID) == kIOReturnSuccess
+        else {
             throw LabelError("The printer does not advertise a Bluetooth serial channel.")
         }
         try await withCheckedThrowingContinuation { continuation in
@@ -69,6 +76,8 @@ final class BluetoothConnection: NSObject, PrinterConnection, @preconcurrency IO
     }
 
     func close() {
+        serviceQuery?.cancel()
+        serviceQuery = nil
         let previous = channel
         channel = nil
         previous?.setDelegate(nil)
@@ -114,5 +123,44 @@ final class BluetoothConnection: NSObject, PrinterConnection, @preconcurrency IO
     func rfcommChannelClosed(_ channel: IOBluetoothRFCOMMChannel!) {
         guard let channel, channel === self.channel else { return }
         disconnect("Bluetooth disconnected. Turn on the printer and keep it nearby.")
+    }
+}
+
+@MainActor
+private final class BluetoothServiceQuery: NSObject {
+    private let device: IOBluetoothDevice
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    init(device: IOBluetoothDevice) {
+        self.device = device
+    }
+
+    func perform() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            let result = device.performSDPQuery(self)
+            if result != kIOReturnSuccess {
+                finish(.failure(LabelError("Bluetooth service discovery failed (\(result)).")))
+            }
+        }
+    }
+
+    func cancel() {
+        finish(.failure(CancellationError()))
+    }
+
+    // periphery:ignore - IOBluetooth invokes this selector on the SDP query target.
+    @objc func sdpQueryComplete(_: IOBluetoothDevice!, status: IOReturn) {
+        guard continuation != nil else { return }
+        guard status == kIOReturnSuccess else {
+            return finish(.failure(LabelError("Bluetooth service discovery failed (\(status)). Check the printer's power and range.")))
+        }
+        finish(.success(()))
+    }
+
+    private func finish(_ result: Result<Void, Error>) {
+        let pending = continuation
+        continuation = nil
+        pending?.resume(with: result)
     }
 }

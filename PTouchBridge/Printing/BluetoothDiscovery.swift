@@ -9,8 +9,7 @@ enum BluetoothDiscovery {
         let devices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? []
         return devices.compactMap { device in
             guard let name = device.name, let address = device.addressString,
-                  let profile = PrinterProfile.matching(name),
-                  device.getServiceRecord(for: IOBluetoothSDPUUID(uuid16: 0x1101)) != nil else { return nil }
+                  let profile = PrinterProfile.matching(name) else { return nil }
             return PrinterDescriptor(address: address, name: name, profile: profile)
         }
     }
